@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "dagster-concepts"
+version = "0.0.1"
+description = ""
+authors = ["Data Engineering <data@vibrenthealth.com>"]
+packages = [
+    { include = "concepts", from = "src" },
+    { include = "concepts_test", from = "tests" },
+]
+
+[tool.dagster]
+module_name = "concepts"
+
+[tool.poetry.dependencies]
+python = ">=3.10,<3.12"
+
+[tool.poetry.group.dev.dependencies]
+dagit = "^1.4.11"
+dagster-webserver = "^1.4.11"
+
+
+[tool.poetry.group.base.dependencies]
+dagster = "^1.4.11"
+dagster-duckdb = "^0.20.11"
+dagster-duckdb-pandas = "^0.20.11"
+polars = { version = ">=0.16.13", extras = ["numpy", "pyarrow"] }
+faker = ">=19.3.0"
+
+

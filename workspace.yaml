@@ -1,0 +1,4 @@
+load_from:
+  - python_package:
+      package_name: concepts
+      working_directory: src
