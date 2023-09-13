@@ -64,3 +64,5 @@ telemetry:
 #        env: DAGSTER_DB_NAME
 #      port:
 #        env: DAGSTER_DB_PORT
+python_logs:
+  python_log_level: ERROR

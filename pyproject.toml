@@ -15,7 +15,6 @@ module_name = "concepts"
 python = ">=3.10,<3.12"
 
 [tool.poetry.group.dev.dependencies]
-dagit = "^1.4.11"
 dagster-webserver = "^1.4.11"
 
 
