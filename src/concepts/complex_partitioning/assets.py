@@ -1,15 +1,9 @@
 from typing import List
-from datetime import date, timedelta
-from faker import Faker
 
 import polars as pl
 
-from dagster import (DailyPartitionsDefinition,
-                     MultiPartitionsDefinition,
-                     DynamicPartitionsDefinition,
-                     asset,
+from dagster import (asset,
                      Config,
-                     MultiToSingleDimensionPartitionMapping,
                      AssetIn,
                      define_asset_job as build_job_from_assets,
                      AssetSelection,
@@ -18,19 +12,7 @@ from dagster import (DailyPartitionsDefinition,
 
 from concepts.complex_partitioning import fake_data
 from concepts.complex_partitioning import helper
-from concepts.complex_partitioning.sensor import build_sensor_using_asset_sensor
-
-Faker.seed(4321)
-start_dt = (date.today() - timedelta(days=5)).strftime('%Y-%m-%d')
-
-daily_partition = DailyPartitionsDefinition(start_date=start_dt)
-
-dynamic_chunks_partition = DynamicPartitionsDefinition(name="chunks")
-
-daily_chunks_multi_part = MultiPartitionsDefinition(
-    partitions_defs={"date": daily_partition, "chunks": dynamic_chunks_partition})
-
-daily_to_chunks = MultiToSingleDimensionPartitionMapping(partition_dimension_name="date")
+from concepts.complex_partitioning.partitions import daily_partition, daily_chunks_multi_part, daily_to_chunks
 
 
 class ReadMaterializationConfig(Config):
@@ -85,7 +67,4 @@ def items_for_tenant(context, config: MyConfig, coalesce_items):
     pass
 
 
-coalesce_items_job = build_job_from_assets("coalesce_items_job", selection=AssetSelection.assets(coalesce_items),
-                                           partitions_def=daily_chunks_multi_part)
 
-the_actual_sensor = build_sensor_using_asset_sensor(sensor_name="inventory_sensor", monitored_asset=inventory)

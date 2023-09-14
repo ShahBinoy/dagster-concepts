@@ -3,6 +3,8 @@ from typing import Optional
 import polars as pl
 from faker import Faker
 
+Faker.seed(4321)
+
 faker = Faker()
 
 
