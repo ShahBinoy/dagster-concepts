@@ -17,13 +17,15 @@ from concepts.complex_partitioning.partitions import daily_partition, daily_chun
 
 class ReadMaterializationConfig(Config):
     asset_key: List[str]
+    force_run: bool = False
 
 
 class MyConfig(Config):
     state_id: str = "Hello"
     full_refresh: bool = False
-    max_batch_size: int = 150 * 1024 * 1024
+    max_batch_size: int = 350 * 1024 * 1024
     record_count: int = 5000
+    force_run: bool = False
 
 
 @asset(
@@ -37,11 +39,16 @@ def inventory(context: StepExecutionContext, config: MyConfig) -> pl.DataFrame:
     chunked_dfs = helper.make_dataframe_chunks(config, inventory_df)
     all_chunks_str = [f"chunk-{x}" for x in chunked_dfs.keys()]
     helper.save_all_chunks(chunked_dfs)
+    meta_data = build_dataframe_metadata(all_chunks_str, chunked_dfs, config, inventory_df)
+    context.add_output_metadata(metadata=meta_data)
+    return inventory_df
+
+
+def build_dataframe_metadata(all_chunks_str, chunked_dfs, config, inventory_df):
     meta_data = {"row_count": inventory_df.height,
                  "chunk_count": len(chunked_dfs.keys()),
                  "chunks": all_chunks_str}
-    context.add_output_metadata(metadata=meta_data)
-    return inventory_df
+    return meta_data
 
 
 @asset(
@@ -53,7 +60,7 @@ def inventory(context: StepExecutionContext, config: MyConfig) -> pl.DataFrame:
 )
 def coalesce_items(context, config: MyConfig, inventory):
     partition_date_str = context.asset_partition_key_for_output()
-    print(f"Split Multi Partition is {partition_date_str} for config {config.max_batch_size}")
+    print(f"Materializing Asset ['coalesce_items'] with partition {partition_date_str}")
 
 
 @asset(
@@ -65,6 +72,3 @@ def items_for_tenant(context, config: MyConfig, coalesce_items):
     This is the documentation of an Asset, Also visible on UI
     """
     pass
-
-
-

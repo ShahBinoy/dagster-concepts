@@ -1,79 +1,75 @@
-from typing import Optional
+from typing import Optional, Sequence, List
 from dagster import (AssetsDefinition, asset_sensor, DefaultSensorStatus, SensorEvaluationContext, EventLogEntry,
                      DagsterEventType as Events, SkipReason, RunRequest, MultiPartitionKey, SensorResult,
                      multi_asset_sensor, MultiAssetSensorEvaluationContext,
-                     AssetSelection, AssetKey, EventRecordsFilter, DagsterInstance, DynamicPartitionsDefinition)
+                     AssetSelection, AssetKey, EventRecordsFilter, DagsterInstance, DynamicPartitionsDefinition,
+                     RunsFilter, DagsterRunStatus, EventLogRecord)
 
 from dagster._core.definitions.target import ExecutableDefinition
 
+sensor_tick_interval: int = 30
 
-def build_asset_sensor_v1(sensor_name: str,
-                          monitored_asset: AssetsDefinition,
-                          target_job: ExecutableDefinition,
-                          partition: DynamicPartitionsDefinition):
+
+def build_asset_sensor_for_downstream_job(sensor_name: str,
+                                          monitored_asset: AssetsDefinition,
+                                          target_job: ExecutableDefinition,
+                                          partition: DynamicPartitionsDefinition):
     @asset_sensor(
         asset_key=monitored_asset.key,
         name=sensor_name,
         default_status=DefaultSensorStatus.RUNNING,
-        job=target_job)
+        job=target_job,
+        minimum_interval_seconds=int(sensor_tick_interval / 2))
     def _sensor(context: SensorEvaluationContext, event: EventLogEntry):
-        upstream_asset_key = event.asset_materialization.asset_key
-        upstream_partition_key = event.asset_materialization.partition
-        print(f"Asset Keys detected by Sensor: {upstream_asset_key} and partition {upstream_partition_key}")
+        from datetime import datetime, timedelta
+        back_dated_ts = float(
+            (datetime.now() - timedelta(seconds=(sensor_tick_interval * 2))).strftime('%s'))
 
-        if _should_trigger_run(context, event, upstream_asset_key, upstream_partition_key):
-            meta = event.asset_materialization.metadata
-            chunks_mdv = meta["chunks"]
-            all_chunks = chunks_mdv.value
-            print(
-                f"Sensor Found Materialization for Partition Key = {upstream_asset_key} \n"
-                f"and Chunk Count = {len(all_chunks)}")
-            context.update_cursor(cursor=upstream_partition_key)
-            parti_request = [partition.build_add_request([a_chunk]) for a_chunk in all_chunks if (
-                not partition.has_partition_key(partition_key=a_chunk,
-                                                               dynamic_partitions_store=context.instance))]
-            all_run_requests = [RunRequest(partition_key=MultiPartitionKey(
-                keys_by_dimension={"date": upstream_partition_key, "chunks": downstream_partition})) for
-                downstream_partition in all_chunks]
-            print(f"Partitions creation Total = {len(parti_request)} \n"
-                  f"and created total run requests {len(all_run_requests)}")
-            return SensorResult(
-                run_requests=all_run_requests,
-                dynamic_partitions_requests=parti_request,
-            )
-        else:
-            no_mat_msg = f"No Materialization For Key: {upstream_asset_key}"
+        asset_keys = [event.asset_materialization.asset_key]
+        print(f"Sensor Triggered for Asset Key -> {event.asset_materialization.asset_key}")
+        materialized_asset_records = _asset_materializations_since_last_tick(context=context,
+                                                                             upstream_asset_key=asset_keys[0],
+                                                                             last_sensor_tick=back_dated_ts)
+        skipped_asset_partitions: List[str] = []
+        all_run_requests: List[RunRequest] = []
+
+        for asset_materialization in materialized_asset_records:
+            chunks_mdv = asset_materialization.asset_materialization.metadata.get('chunks')
+            all_chunks = chunks_mdv.value if chunks_mdv else []
+            upstream_partition_key = asset_materialization.partition_key
+            asset_name = asset_materialization.asset_key.to_user_string()
+            no_mat_msg = (f"Asset|Partition: {asset_name}|{upstream_partition_key}\n"
+                          f"    Chunks: {all_chunks}")
             print(no_mat_msg)
-            return SkipReason(skip_message=no_mat_msg)
+            context.instance.add_dynamic_partitions(partitions_def_name=partition.name,
+                                                    partition_keys=all_chunks)
+            all_run_requests += [
+                RunRequest(run_key=upstream_partition_key,
+                           partition_key=MultiPartitionKey(
+                               keys_by_dimension={"date": upstream_partition_key,
+                                                  "chunks": downstream_partition})) for
+                downstream_partition in all_chunks]
 
-    def _should_trigger_run(context, event, upstream_asset_key, upstream_partition_key):
-        event_type_is_materialization:bool = event.dagster_event_type == Events.ASSET_MATERIALIZATION
-        partition_is_materialized:bool = _is_partition_materialized(
-            upstream_asset_key,
-            upstream_partition_key,
-            context.instance)
-        print(f"Checking if Event Type is Materialization: {event_type_is_materialization}\n"
-              f"Checking if Partition is Materialized: {partition_is_materialized}")
-        return event_type_is_materialization and partition_is_materialized
-
-    def _is_partition_materialized(asset_key: AssetKey, partition_key: str, instance: DagsterInstance) -> bool:
-        return bool(
-            instance.get_event_records(
-                EventRecordsFilter(
-                    asset_key=asset_key,
-                    event_type=Events.ASSET_MATERIALIZATION,
-                    asset_partitions=[partition_key],
-                ),
-                limit=1,
-            )
+        return SensorResult(
+            run_requests=all_run_requests
         )
 
+    def _asset_materializations_since_last_tick(context: SensorEvaluationContext,
+                                                upstream_asset_key: AssetKey,
+                                                last_sensor_tick: float,
+                                                force_run: bool = False) -> Sequence[EventLogRecord]:
+        run_records = context.instance.get_event_records(
+            EventRecordsFilter(
+                event_type=Events.ASSET_MATERIALIZATION,
+                asset_key=upstream_asset_key,
+                after_timestamp=last_sensor_tick
+            ),
+            ascending=False
+        )
+
+        return run_records
+
     return _sensor
-
-
-
-
-
 
 
 def build_asset_sensor_v2(sensor_name: str,
@@ -89,6 +85,3 @@ def build_asset_sensor_v2(sensor_name: str,
         asset_key, event = context.latest_materialization_records_by_key(monitored_asset.key)
 
     return _sensor
-
-
-
