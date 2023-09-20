@@ -10,9 +10,10 @@ from dagster import (asset,
                      StepExecutionContext
                      )
 
-from concepts.complex_partitioning import fake_data
+from concepts.common import fake_data
 from concepts.complex_partitioning import helper
 from concepts.complex_partitioning.partitions import daily_partition, daily_chunks_multi_part, daily_to_chunks
+
 
 
 class ReadMaterializationConfig(Config):
@@ -23,7 +24,7 @@ class ReadMaterializationConfig(Config):
 class MyConfig(Config):
     state_id: str = "Hello"
     full_refresh: bool = False
-    max_batch_size: int = 350 * 1024 * 1024
+    max_batch_size: int = 5250 * 1024 * 1024
     record_count: int = 5000
     force_run: bool = False
 
@@ -35,9 +36,9 @@ class MyConfig(Config):
 def inventory(context: StepExecutionContext, config: MyConfig) -> pl.DataFrame:
     partition_id = context.asset_partition_key_for_output()
     print(f"Partition Output Key is {partition_id} for config {config.max_batch_size}")
-    inventory_df = fake_data.generate_fake_dataframe()
+    inventory_df = fake_data.generate_fake_dataframe(weighted=True)
     chunked_dfs = helper.make_dataframe_chunks(config, inventory_df)
-    all_chunks_str = [f"chunk-{x}" for x in chunked_dfs.keys()]
+    all_chunks_str = [f"part-{x}" for x in chunked_dfs.keys()]
     helper.save_all_chunks(chunked_dfs)
     meta_data = build_dataframe_metadata(all_chunks_str, chunked_dfs, config, inventory_df)
     context.add_output_metadata(metadata=meta_data)
@@ -47,7 +48,7 @@ def inventory(context: StepExecutionContext, config: MyConfig) -> pl.DataFrame:
 def build_dataframe_metadata(all_chunks_str, chunked_dfs, config, inventory_df):
     meta_data = {"row_count": inventory_df.height,
                  "chunk_count": len(chunked_dfs.keys()),
-                 "chunks": all_chunks_str}
+                 "parts": all_chunks_str}
     return meta_data
 
 
@@ -58,9 +59,10 @@ def build_dataframe_metadata(all_chunks_str, chunked_dfs, config, inventory_df):
         partition_mapping=daily_to_chunks,
     )}
 )
-def coalesce_items(context, config: MyConfig, inventory):
+def coalesce_items(context: StepExecutionContext, config: MyConfig, inventory):
     partition_date_str = context.asset_partition_key_for_output()
     print(f"Materializing Asset ['coalesce_items'] with partition {partition_date_str}")
+    context.add_output_metadata(metadata={"record_count": len(inventory)})
 
 
 @asset(
