@@ -23,9 +23,9 @@ from mimesis import Fieldset
 from mimesis.locales import Locale
 
 
-def generate_fake_dataframe(count: int = 7000, weighted: bool = False):
+def generate_fake_dataframe(count: int = 5000, weighted: bool = False):
     if weighted:
-        weight = generic.random.randint(a=9, b=19)
+        weight = generic.random.randint(a=2, b=9)
     else:
         weight = 1
     row_count = count * weight

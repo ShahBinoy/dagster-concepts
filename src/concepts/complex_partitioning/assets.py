@@ -24,7 +24,7 @@ class ReadMaterializationConfig(Config):
 class MyConfig(Config):
     state_id: str = "Hello"
     full_refresh: bool = False
-    max_batch_size: int = 5250 * 1024 * 1024
+    max_batch_size: int = 512 * 1024 * 1024
     record_count: int = 5000
     force_run: bool = False
 
@@ -55,9 +55,6 @@ def build_dataframe_metadata(all_chunks_str, chunked_dfs, config, inventory_df):
 @asset(
     partitions_def=daily_chunks_multi_part,
     group_name="datalake_core",
-    ins={"inventory": AssetIn(
-        partition_mapping=daily_to_chunks,
-    )}
 )
 def coalesce_items(context: StepExecutionContext, config: MyConfig, inventory):
     partition_date_str = context.asset_partition_key_for_output()
@@ -67,10 +64,13 @@ def coalesce_items(context: StepExecutionContext, config: MyConfig, inventory):
 
 @asset(
     partitions_def=daily_partition,
-    group_name="datalake_core"
+    group_name="datalake_core",
+    ins={
+        "coalesce_items": AssetIn(key=coalesce_items.key, partition_mapping=daily_to_chunks)
+    }
 )
 def items_for_tenant(context, config: MyConfig, coalesce_items):
     """
     This is the documentation of an Asset, Also visible on UI
     """
-    pass
+    print(f"Called items for tenant {coalesce_items}")
